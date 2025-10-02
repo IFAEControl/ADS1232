@@ -6,7 +6,7 @@ To simplify its use, only the DOUT, SCLK, PDWN and SPEED communication connectio
 The library has been adapted for use with faster processors such as the ESP32 and uses functions such as Offset calibration which can minimize Input Offset Error errors to the level of noise at any temperature.
 
 one function example:
-  ERROR_t get_units(float& value, byte times = 1, bool Calibrating = false);
+  ERROR_t get_units(float& value, uint8_t times = 1, bool Calibrating = false);
 
 Errors returned by the library include:
 
