@@ -1,7 +1,7 @@
 # ADS123X
 A Simple Non-blocking Library for reading from Texas Instruments ADS1232 MultiChannel 24-bit ADC For Bridge Sensors.
 
-To simplify its use, only the DOUT, SCLK, PDWN and SPEED communication connections are physically required.
+To simplify its use, only the DOUT, sclk, PDWN and SPEED communication connections are physically required.
 
 The library has been adapted for use with faster processors such as the ESP32 and uses functions such as Offset calibration which can minimize Input Offset Error errors to the level of noise at any temperature.
 
