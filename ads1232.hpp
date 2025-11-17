@@ -23,6 +23,13 @@ enum class CHANNEL : uint8_t {
     TEMP,
 };
 
+enum class GAIN : uint8_t {
+    GAIN_1,
+    GAIN_2,
+    GAIN_64,
+    GAIN_128
+};
+
 struct Ads1232Pins {
     gpio_num_t dout;
     gpio_num_t sclk;
@@ -39,10 +46,11 @@ public:
     Ads1232(const Ads1232Pins&& p);
     ~Ads1232() = default;
 
-    void setUp(SPEED s = SPEED::SLOW, CHANNEL c = CHANNEL::CH0);
+    void setUp(SPEED s = SPEED::SLOW, CHANNEL c = CHANNEL::CH0, GAIN g = GAIN::GAIN_1);
     bool isReady();
     esp_err_t setSpeed(SPEED);
     esp_err_t setChannel(CHANNEL);
+    esp_err_t setGain(GAIN);
     ERROR_t read(long& value, bool Calibrating = false);
     ERROR_t read_average(float& value, uint8_t times = 10, bool Calibrating = false);
     ERROR_t get_value(float& value, uint8_t times = 1, bool Calibrating = false);

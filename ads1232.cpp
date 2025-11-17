@@ -7,7 +7,7 @@
 Ads1232::Ads1232(const Ads1232Pins&& p) : _pin{p} {
 }
 
-void Ads1232::setUp(SPEED s, CHANNEL c)  {
+void Ads1232::setUp(SPEED s, CHANNEL c, GAIN g)  {
     gpio_config_t io_conf = {};
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_OUTPUT;
@@ -19,9 +19,14 @@ void Ads1232::setUp(SPEED s, CHANNEL c)  {
     gpio_set_direction(_pin.dout, GPIO_MODE_INPUT);
     gpio_set_direction(_pin.pdwn, GPIO_MODE_OUTPUT);
     gpio_set_direction(_pin.speed, GPIO_MODE_OUTPUT);
+    gpio_set_direction(_pin.a0, GPIO_MODE_OUTPUT);
+    gpio_set_direction(_pin.temp, GPIO_MODE_OUTPUT);
+    gpio_set_direction(_pin.gain0, GPIO_MODE_OUTPUT);
+    gpio_set_direction(_pin.gain1, GPIO_MODE_OUTPUT);
 
-    setSpeed(s);
+    setGain(g);
     setChannel(c);
+    setSpeed(s);
     powerUp();
 }
 
@@ -76,6 +81,26 @@ esp_err_t Ads1232::setChannel(CHANNEL ch) {
         case CHANNEL::TEMP: return set_gpio(1, 0);
         case CHANNEL::CH0: return set_gpio(0, 0);
         case CHANNEL::CH1: return set_gpio(1, 1);
+    }
+
+    return ESP_FAIL;
+}
+
+esp_err_t Ads1232::setGain(GAIN g) {
+    auto set_gpio = [this](bool g0, bool g1) {
+        if(auto r = gpio_set_level(_pin.gain0, g0); r != ESP_OK)
+            return r;
+        if(auto r = gpio_set_level(_pin.gain1, g1); r != ESP_OK)
+            return r;
+
+        return ESP_OK;
+    };
+
+    switch(g) {
+        case GAIN::GAIN_1: return set_gpio(0, 0);
+        case GAIN::GAIN_2: return set_gpio(0, 1);
+        case GAIN::GAIN_64: return set_gpio(1, 0);
+        case GAIN::GAIN_128: return set_gpio(1, 1);
     }
 
     return ESP_FAIL;
