@@ -3,15 +3,6 @@
 #include <driver/gpio.h>
 #include <esp_timer.h>
 
-enum ERROR_t {
-    NoERROR,
-    TIMEOUT_HIGH,     // Timeout waiting for HIGH
-    TIMEOUT_LOW,      // Timeout waiting for LOW
-    WOULD_BLOCK,      // weight not measured, measuring takes too long
-    STABLE_TIMEOUT,   // weight not stable within timeout
-    DIVIDED_by_ZERO
-};
-
 enum class SPEED : uint8_t {
     SLOW,
     FAST
@@ -51,11 +42,11 @@ public:
     esp_err_t setSpeed(SPEED);
     esp_err_t setChannel(CHANNEL);
     esp_err_t setGain(GAIN);
-    ERROR_t read(long& value, bool Calibrating = false);
-    ERROR_t read_average(float& value, uint8_t times = 10, bool Calibrating = false);
-    ERROR_t get_value(float& value, uint8_t times = 1, bool Calibrating = false);
-    ERROR_t get_units(float& value, uint8_t times = 1, bool Calibrating = false);
-    ERROR_t tare(uint8_t times = 10, bool Calibrating = false);
+    esp_err_t read(long& value, bool cal = false);
+    esp_err_t readAverage(float& value, uint8_t times = 10, bool cal = false);
+    esp_err_t getValue(float& value, uint8_t times = 1, bool cal = false);
+    esp_err_t getUnits(float& value, uint8_t times = 1, bool cal = false);
+    esp_err_t tare(uint8_t times = 10, bool cal = false);
     void setScale(float);
     float getScale() const;
     void setOffset(float);

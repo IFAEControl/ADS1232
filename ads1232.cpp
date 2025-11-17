@@ -1,8 +1,11 @@
 #include <esp_timer.h>
+#include <esp_check.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
 #include "ads1232.hpp"
+
+static constexpr auto k_tag = "ads1232";
 
 Ads1232::Ads1232(const Ads1232Pins&& p) : _pin{p} {
 }
@@ -106,32 +109,30 @@ esp_err_t Ads1232::setGain(GAIN g) {
     return ESP_FAIL;
 }
 
-ERROR_t Ads1232::read(long& value, bool Calibrating) {
-    int i = 0;
-    unsigned long start;
-    unsigned int waitingTime;
-    value = 0;
+esp_err_t Ads1232::read(long& value, bool cal) {
+    unsigned timeout;
 
-    if(Calibrating) {
-        waitingTime = (_speed == SPEED::FAST) ? 150 : 850;
+    if(cal) {
+        timeout = (_speed == SPEED::FAST) ? 150 : 850;
     } else {
-        waitingTime = (_speed == SPEED::FAST) ? 20 : 150;
+        timeout = (_speed == SPEED::FAST) ? 20 : 150;
     }
-    waitingTime += 600;
+    timeout += 600;
 
-    start = esp_timer_get_time() / 1000;
+    unsigned long start = esp_timer_get_time() / 1000;
     while(gpio_get_level(_pin.dout) != 1) {
-        if((esp_timer_get_time() / 1000 - start) > waitingTime) return TIMEOUT_HIGH;
+        if((esp_timer_get_time() / 1000 - start) > timeout) return ESP_ERR_TIMEOUT;
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 
     start = esp_timer_get_time() / 1000;
     while(gpio_get_level(_pin.dout) != 0) {
-        if((esp_timer_get_time() / 1000 - start) > waitingTime) return TIMEOUT_LOW;
+        if((esp_timer_get_time() / 1000 - start) > timeout) return ESP_ERR_TIMEOUT;
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 
-    for(i = 23; i >= 0; i--) {
+    value = 0;
+    for(unsigned i = 0; i < 24; i++) {
         gpio_set_level(_pin.sclk, 1);
         esp_rom_delay_us(1);
         value = (value << 1) + gpio_get_level(_pin.dout);
@@ -139,8 +140,8 @@ ERROR_t Ads1232::read(long& value, bool Calibrating) {
         esp_rom_delay_us(1);
     }
 
-    if(Calibrating) {
-        for(i = 1; i >= 0; i--) {
+    if(cal) {
+        for(unsigned i = 0; i < 2; i++) {
             gpio_set_level(_pin.sclk, 1);
             esp_rom_delay_us(1);
             gpio_set_level(_pin.sclk, 0);
@@ -155,58 +156,52 @@ ERROR_t Ads1232::read(long& value, bool Calibrating) {
 
     value = (value << 8) / 256;
 
-    if(!Calibrating) {
+    if(!cal) {
         gpio_set_level(_pin.sclk, 1);
         esp_rom_delay_us(1);
         gpio_set_level(_pin.sclk, 0);
         esp_rom_delay_us(1);
     }
-    return NoERROR;
+    return ESP_OK;
 }
 
-ERROR_t Ads1232::read_average(float& value, uint8_t times, bool Calibrating) {
+esp_err_t Ads1232::readAverage(float& value, uint8_t times, bool cal) {
+    if(times == 0) return ESP_ERR_INVALID_ARG;
+
     long sum = 0;
-    ERROR_t err;
     long val;
 
-    if(Calibrating) read(val, true);
+    if(cal) read(val, true);
     for(uint8_t i = 0; i < times; i++) {
-        err = read(val, false);
-        if(err != NoERROR) return err;
+        ESP_RETURN_ON_ERROR(read(val, false), k_tag, "Can not read");
         sum += val;
         vTaskDelay(pdMS_TO_TICKS(1));
     }
-    if(times == 0) return DIVIDED_by_ZERO;
     value = (float)sum / times;
-    return NoERROR;
+    return ESP_OK;
 }
 
-ERROR_t Ads1232::get_value(float& value, uint8_t times, bool Calibrating) {
+esp_err_t Ads1232::getValue(float& value, uint8_t times, bool cal) {
     float val = 0;
-    ERROR_t err;
-    err = read_average(val, times, Calibrating);
-    if(err != NoERROR) return err;
+    ESP_RETURN_ON_ERROR(readAverage(val, times, cal), k_tag, "Can not read");
     value = val - _offset;
-    return NoERROR;
+    return ESP_OK;
 }
 
-ERROR_t Ads1232::get_units(float& value, uint8_t times, bool Calibrating) {
-    float val = 0;
-    ERROR_t err;
-    err = get_value(val, times, Calibrating);
-    if(err != NoERROR) return err;
-    if(_scale == 0) return DIVIDED_by_ZERO;
-    value = val / _scale;
-    return NoERROR;
+esp_err_t Ads1232::getUnits(float& value, uint8_t times, bool cal) {
+    if(_scale == 0) return ESP_ERR_INVALID_SIZE;
+
+    float v = 0;
+    ESP_RETURN_ON_ERROR(getValue(v, times, cal), k_tag, "Can not read");
+    value = v / _scale;
+    return ESP_OK;
 }
 
-ERROR_t Ads1232::tare(uint8_t times, bool Calibrating) {
-    ERROR_t err;
+esp_err_t Ads1232::tare(uint8_t times, bool cal) {
     float sum = 0;
-    err = read_average(sum, times, Calibrating);
-    if(err != NoERROR) return err;
+    ESP_RETURN_ON_ERROR(readAverage(sum, times, cal), k_tag, "Can not read");
     setOffset(sum);
-    return NoERROR;
+    return ESP_OK;
 }
 
 void Ads1232::setScale(float s) {
