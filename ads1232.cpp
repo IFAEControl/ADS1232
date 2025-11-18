@@ -33,6 +33,12 @@ void Ads1232::setUp(SPEED s, CHANNEL c, GAIN g)  {
     powerUp();
 }
 
+void Ads1232::configureReadyInterrupt(gpio_isr_t ih) {
+    gpio_set_intr_type(_pin.dout, GPIO_INTR_NEGEDGE);
+    gpio_isr_handler_add(_pin.dout, ih, NULL);
+}
+
+
 bool Ads1232::isReady() {
     return gpio_get_level(_pin.dout) == 0;
 }
@@ -109,26 +115,17 @@ esp_err_t Ads1232::setGain(GAIN g) {
     return ESP_FAIL;
 }
 
-esp_err_t Ads1232::read(long& value, bool cal) {
-    unsigned timeout;
-
-    if(cal) {
-        timeout = (_speed == SPEED::FAST) ? 150 : 850;
+esp_err_t Ads1232::read(long& value, bool cal, bool wait) {
+    if(wait) {
+        if(auto r = waitReady(cal); r != ESP_OK) return r;
     } else {
-        timeout = (_speed == SPEED::FAST) ? 20 : 150;
-    }
-    timeout += 600;
-
-    unsigned long start = esp_timer_get_time() / 1000;
-    while(gpio_get_level(_pin.dout) != 1) {
-        if((esp_timer_get_time() / 1000 - start) > timeout) return ESP_ERR_TIMEOUT;
-        vTaskDelay(pdMS_TO_TICKS(1));
+        if(!isReady()) return ESP_ERR_INVALID_STATE;
     }
 
-    start = esp_timer_get_time() / 1000;
-    while(gpio_get_level(_pin.dout) != 0) {
-        if((esp_timer_get_time() / 1000 - start) > timeout) return ESP_ERR_TIMEOUT;
-        vTaskDelay(pdMS_TO_TICKS(1));
+    // if not blocking read we assume an interrupt was configured
+    if(!wait) {
+        // Disable interrupt until data has been processed
+        gpio_set_intr_type(_pin.dout, GPIO_INTR_DISABLE);
     }
 
     value = 0;
@@ -162,18 +159,26 @@ esp_err_t Ads1232::read(long& value, bool cal) {
         gpio_set_level(_pin.sclk, 0);
         esp_rom_delay_us(1);
     }
+
+    // if not blocking read we assume an interrupt was configured
+    if(!wait) {
+        // Disable interrupt until data has been processed
+        gpio_set_intr_type(_pin.dout, GPIO_INTR_NEGEDGE);
+    }
+
+
     return ESP_OK;
 }
 
-esp_err_t Ads1232::readAverage(float& value, uint8_t times, bool cal) {
+esp_err_t Ads1232::readAverage(float& value, uint8_t times, bool cal, bool wait) {
     if(times == 0) return ESP_ERR_INVALID_ARG;
 
     long sum = 0;
     long val;
 
-    if(cal) read(val, true);
+    if(cal) read(val, cal, wait);
     for(uint8_t i = 0; i < times; i++) {
-        ESP_RETURN_ON_ERROR(read(val, false), k_tag, "Can not read");
+        ESP_RETURN_ON_ERROR(read(val, false, wait), k_tag, "Can not read");
         sum += val;
         vTaskDelay(pdMS_TO_TICKS(1));
     }
@@ -181,18 +186,18 @@ esp_err_t Ads1232::readAverage(float& value, uint8_t times, bool cal) {
     return ESP_OK;
 }
 
-esp_err_t Ads1232::getValue(float& value, uint8_t times, bool cal) {
+esp_err_t Ads1232::getValue(float& value, uint8_t times, bool cal, bool wait) {
     float val = 0;
-    ESP_RETURN_ON_ERROR(readAverage(val, times, cal), k_tag, "Can not read");
+    ESP_RETURN_ON_ERROR(readAverage(val, times, cal, wait), k_tag, "Can not read");
     value = val - _offset;
     return ESP_OK;
 }
 
-esp_err_t Ads1232::getUnits(float& value, uint8_t times, bool cal) {
+esp_err_t Ads1232::getUnits(float& value, uint8_t times, bool cal, bool wait) {
     if(_scale == 0) return ESP_ERR_INVALID_SIZE;
 
     float v = 0;
-    ESP_RETURN_ON_ERROR(getValue(v, times, cal), k_tag, "Can not read");
+    ESP_RETURN_ON_ERROR(getValue(v, times, cal, wait), k_tag, "Can not read");
     value = v / _scale;
     return ESP_OK;
 }
@@ -219,3 +224,31 @@ void Ads1232::setOffset(float o) {
 float Ads1232::getOffset() const {
     return _offset;
 }
+
+// private methods
+
+esp_err_t Ads1232::waitReady(bool cal) {
+    unsigned timeout;
+
+    if(cal) {
+        timeout = (_speed == SPEED::FAST) ? 150 : 850;
+    } else {
+        timeout = (_speed == SPEED::FAST) ? 20 : 150;
+    }
+    timeout += 600;
+
+    unsigned long start = esp_timer_get_time() / 1000;
+    while(gpio_get_level(_pin.dout) != 1) {
+        if((esp_timer_get_time() / 1000 - start) > timeout) return ESP_ERR_TIMEOUT;
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    start = esp_timer_get_time() / 1000;
+    while(gpio_get_level(_pin.dout) != 0) {
+        if((esp_timer_get_time() / 1000 - start) > timeout) return ESP_ERR_TIMEOUT;
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    return ESP_OK;
+}
+

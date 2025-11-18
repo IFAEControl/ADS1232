@@ -37,15 +37,16 @@ public:
     Ads1232(const Ads1232Pins&& p);
     ~Ads1232() = default;
 
-    void setUp(SPEED s = SPEED::SLOW, CHANNEL c = CHANNEL::CH0, GAIN g = GAIN::GAIN_1);
+    void setUp(SPEED s, CHANNEL c, GAIN g);
+    void configureReadyInterrupt(gpio_isr_t);
     bool isReady();
     esp_err_t setSpeed(SPEED);
     esp_err_t setChannel(CHANNEL);
     esp_err_t setGain(GAIN);
-    esp_err_t read(long& value, bool cal = false);
-    esp_err_t readAverage(float& value, uint8_t times = 10, bool cal = false);
-    esp_err_t getValue(float& value, uint8_t times = 1, bool cal = false);
-    esp_err_t getUnits(float& value, uint8_t times = 1, bool cal = false);
+    esp_err_t read(long& value, bool cal = false, bool wait = true);
+    esp_err_t readAverage(float& value, uint8_t times = 10, bool cal = false, bool wait = true);
+    esp_err_t getValue(float& value, uint8_t times = 1, bool cal = false, bool wait = true);
+    esp_err_t getUnits(float& value, uint8_t times = 1, bool cal = false, bool wait = true);
     esp_err_t tare(uint8_t times = 10, bool cal = false);
     void setScale(float);
     float getScale() const;
@@ -55,6 +56,8 @@ public:
     void powerUp();
 
 private:
+    esp_err_t waitReady(bool cal);
+
     const Ads1232Pins _pin;
 
     SPEED _speed{SPEED::SLOW};
