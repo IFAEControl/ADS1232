@@ -78,7 +78,7 @@ esp_err_t Ads1232::setChannel(CHANNEL ch) {
     auto set_gpio = [this](bool temp, bool a0) {
         if(auto r = gpio_set_level(_pin.temp, temp); r != ESP_OK)
             return r;
-        if(auto r = gpio_set_level(_pin.temp, a0); r != ESP_OK)
+        if(auto r = gpio_set_level(_pin.a0, a0); r != ESP_OK)
             return r;
 
         esp_rom_delay_us(50);
