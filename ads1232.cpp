@@ -136,6 +136,7 @@ esp_err_t Ads1232::read(long& value, bool cal, bool wait) {
         gpio_set_level(_pin.sclk, 0);
         esp_rom_delay_us(1);
     }
+    value = (value << 8) / 256;
 
     if(cal) {
         for(unsigned i = 0; i < 2; i++) {
@@ -149,11 +150,7 @@ esp_err_t Ads1232::read(long& value, bool cal, bool wait) {
         } else {
             vTaskDelay(pdMS_TO_TICKS(800));
         }
-    }
-
-    value = (value << 8) / 256;
-
-    if(!cal) {
+    } else {
         gpio_set_level(_pin.sclk, 1);
         esp_rom_delay_us(1);
         gpio_set_level(_pin.sclk, 0);
@@ -165,7 +162,6 @@ esp_err_t Ads1232::read(long& value, bool cal, bool wait) {
         // Disable interrupt until data has been processed
         gpio_set_intr_type(_pin.dout, GPIO_INTR_NEGEDGE);
     }
-
 
     return ESP_OK;
 }
