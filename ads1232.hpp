@@ -53,7 +53,7 @@ public:
     void setOffset(float);
     float getOffset() const;
     void powerDown();
-    void powerUp();
+    esp_err_t powerUp();
 
 private:
     esp_err_t waitReady(bool cal);

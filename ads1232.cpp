@@ -7,34 +7,47 @@
 
 static constexpr auto k_tag = "ads1232";
 
+template<unsigned N>
+static inline void delay_ns() {
+    static_assert(N > 3);
+    constexpr unsigned t = N/2.8; // for 360 MHz CPU clock
+    #pragma GCC unroll 500
+    for(unsigned i = 0; i < t; i++)
+         __asm__("nop");
+}
+
 Ads1232::Ads1232(const Ads1232Pins&& p) : _pin{p} {
 }
 
 void Ads1232::setUp(SPEED s, CHANNEL c, GAIN g)  {
+    ESP_ERROR_CHECK(gpio_set_direction(_pin.speed, GPIO_MODE_OUTPUT));
+    ESP_ERROR_CHECK(gpio_set_direction(_pin.a0, GPIO_MODE_OUTPUT));
+    ESP_ERROR_CHECK(gpio_set_direction(_pin.temp, GPIO_MODE_OUTPUT));
+    ESP_ERROR_CHECK(gpio_set_direction(_pin.gain1, GPIO_MODE_OUTPUT));
+    ESP_ERROR_CHECK(gpio_set_direction(_pin.pdwn, GPIO_MODE_OUTPUT));
+    ESP_ERROR_CHECK(gpio_set_direction(_pin.gain0, GPIO_MODE_OUTPUT));
+    ESP_ERROR_CHECK(gpio_set_direction(_pin.dout, GPIO_MODE_INPUT));
+
     gpio_config_t io_conf = {};
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_OUTPUT;
     io_conf.pin_bit_mask = (1ULL << _pin.sclk);
-    io_conf.pull_down_en = GPIO_PULLDOWN_ENABLE;
-    io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
     ESP_ERROR_CHECK(gpio_config(&io_conf));
 
-    gpio_set_direction(_pin.dout, GPIO_MODE_INPUT);
-    gpio_set_direction(_pin.pdwn, GPIO_MODE_OUTPUT);
-    gpio_set_direction(_pin.speed, GPIO_MODE_OUTPUT);
-    gpio_set_direction(_pin.a0, GPIO_MODE_OUTPUT);
-    gpio_set_direction(_pin.temp, GPIO_MODE_OUTPUT);
-    gpio_set_direction(_pin.gain0, GPIO_MODE_OUTPUT);
-    gpio_set_direction(_pin.gain1, GPIO_MODE_OUTPUT);
-
-    setGain(g);
-    setChannel(c);
-    setSpeed(s);
-    powerUp();
+    if(setGain(g) != ESP_OK)
+        ESP_LOGE(k_tag, "Error setting gain");
+    if(setChannel(c) != ESP_OK)
+        ESP_LOGE(k_tag, "Error setting channel");
+    if(setSpeed(s) != ESP_OK)
+        ESP_LOGE(k_tag, "Error setting speed");
+    if(powerUp() != ESP_OK)
+        ESP_LOGE(k_tag, "Error powering up");
 }
 
 void Ads1232::configureReadyInterrupt(gpio_isr_t ih) {
-    gpio_set_intr_type(_pin.dout, GPIO_INTR_NEGEDGE);
+    gpio_set_intr_type(_pin.dout, GPIO_INTR_LOW_LEVEL);
     gpio_isr_handler_add(_pin.dout, ih, NULL);
 }
 
@@ -43,16 +56,16 @@ bool Ads1232::isReady() {
     return gpio_get_level(_pin.dout) == 0;
 }
 
-void Ads1232::powerUp() {
-    gpio_set_level(_pin.pdwn, 0);
-    esp_rom_delay_us(20);
-    gpio_set_level(_pin.pdwn, 1);
-    esp_rom_delay_us(20);
-    gpio_set_level(_pin.pdwn, 0);
-    esp_rom_delay_us(30);
-    gpio_set_level(_pin.pdwn, 1);
-    esp_rom_delay_us(1);
-    gpio_set_level(_pin.sclk, 0);
+esp_err_t Ads1232::powerUp() {
+    if(auto r = gpio_set_level(_pin.pdwn, 0); r != ESP_OK) return r;
+    esp_rom_delay_us(10);
+    if(auto r = gpio_set_level(_pin.pdwn, 1); r != ESP_OK) return r;
+    esp_rom_delay_us(26);
+    if(auto r = gpio_set_level(_pin.pdwn, 0); r != ESP_OK) return r;
+    esp_rom_delay_us(26);
+    if(auto r = gpio_set_level(_pin.pdwn, 1); r != ESP_OK) return r;
+    delay_ns<100>();
+    return gpio_set_level(_pin.sclk, 0);
 }
 
 void Ads1232::powerDown() {
@@ -119,31 +132,26 @@ esp_err_t Ads1232::read(long& value, bool cal, bool wait) {
     if(wait) {
         if(auto r = waitReady(cal); r != ESP_OK) return r;
     } else {
-        if(!isReady()) return ESP_ERR_INVALID_STATE;
+        if(!isReady()) [[unlikely]]
+            return ESP_ERR_INVALID_STATE;
     }
-
-    // if not blocking read we assume an interrupt was configured
-    if(!wait) {
-        // Disable interrupt until data has been processed
-        gpio_set_intr_type(_pin.dout, GPIO_INTR_DISABLE);
-    }
-
     value = 0;
+    #pragma GCC unroll 24
     for(unsigned i = 0; i < 24; i++) {
         gpio_set_level(_pin.sclk, 1);
-        esp_rom_delay_us(1);
+        delay_ns<100>();
         value = (value << 1) + gpio_get_level(_pin.dout);
         gpio_set_level(_pin.sclk, 0);
-        esp_rom_delay_us(1);
+        delay_ns<200>();
     }
     value = (value << 8) / 256;
 
-    if(cal) {
+    if(cal) [[unlikely]] {
         for(unsigned i = 0; i < 2; i++) {
             gpio_set_level(_pin.sclk, 1);
-            esp_rom_delay_us(1);
+            delay_ns<100>();
             gpio_set_level(_pin.sclk, 0);
-            esp_rom_delay_us(1);
+            delay_ns<100>();
         }
         if(_speed == SPEED::FAST) {
             vTaskDelay(pdMS_TO_TICKS(100));
@@ -152,15 +160,9 @@ esp_err_t Ads1232::read(long& value, bool cal, bool wait) {
         }
     } else {
         gpio_set_level(_pin.sclk, 1);
-        esp_rom_delay_us(1);
+         delay_ns<100>();
         gpio_set_level(_pin.sclk, 0);
-        esp_rom_delay_us(1);
-    }
-
-    // if not blocking read we assume an interrupt was configured
-    if(!wait) {
-        // Disable interrupt until data has been processed
-        gpio_set_intr_type(_pin.dout, GPIO_INTR_NEGEDGE);
+         delay_ns<100>();
     }
 
     return ESP_OK;
@@ -172,9 +174,10 @@ esp_err_t Ads1232::readAverage(float& value, uint8_t times, bool cal, bool wait)
     long sum = 0;
     long val;
 
-    if(cal) read(val, cal, wait);
+    if(cal) [[unlikely]] read(val, cal, wait);
     for(uint8_t i = 0; i < times; i++) {
-        ESP_RETURN_ON_ERROR(read(val, false, wait), k_tag, "Can not read");
+        if(auto r = read(val, false, wait); r != ESP_OK) [[unlikely]]
+            return r;
         sum += val;
         vTaskDelay(pdMS_TO_TICKS(1));
     }
@@ -183,17 +186,17 @@ esp_err_t Ads1232::readAverage(float& value, uint8_t times, bool cal, bool wait)
 }
 
 esp_err_t Ads1232::getValue(float& value, uint8_t times, bool cal, bool wait) {
-    float val = 0;
-    ESP_RETURN_ON_ERROR(readAverage(val, times, cal, wait), k_tag, "Can not read");
+    float val{};
+    if(auto r = readAverage(val, times, cal, wait); r != ESP_OK) [[unlikely]] return r;
     value = val - _offset;
     return ESP_OK;
 }
 
 esp_err_t Ads1232::getUnits(float& value, uint8_t times, bool cal, bool wait) {
-    if(_scale == 0) return ESP_ERR_INVALID_SIZE;
+    if(_scale == 0) [[unlikely]]  return ESP_ERR_INVALID_SIZE;
 
     float v = 0;
-    ESP_RETURN_ON_ERROR(getValue(v, times, cal, wait), k_tag, "Can not read");
+    if(auto r = getValue(v, times, cal, wait); r != ESP_OK) [[unlikely]] return r;
     value = v / _scale;
     return ESP_OK;
 }
